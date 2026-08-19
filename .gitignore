@@ -1,0 +1,12 @@
+# Este Git contém somente documentação e scripts.
+*.log
+*.out
+*.pcap
+*.tr
+*.xml
+core
+core.*
+__pycache__/
+.venv/
+venv/
+.DS_Store
