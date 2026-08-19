@@ -1,34 +1,49 @@
-# Orange Nuclear Debug Guide
+# Orange-Nuclear — Guia de instalação e debug
 
-Repositório separado para documentar a instalação e o debug do ambiente ns-3 com mmWave/O-RAN e FlexRIC.
+Guia operacional para instalar e depurar o ambiente de simulação **Orange-Nuclear**:
 
-Este repositório não contém o código-fonte do simulador, resultados, modelos ou credenciais. Ele também não altera o ambiente existente em `/home/robert/orange_nuclear`.
+```text
+FlexRIC + E2SIM + ns-O-RAN-flexric + ns-3/mmWave/LENA
+```
 
-## Documentos
+O foco é Ubuntu 24.04 em um servidor ou runtime separado. Este repositório contém documentação e verificações seguras; não contém os fontes, modelos ou resultados do simulador.
 
-- [Manual de instalação](MANUAL_INSTALACAO_ORAN.md)
-- [Guia de debug](GUIA_DEBUG_NS3_FLEXRIC.md)
+## Comece aqui
+
+1. Leia o [Manual de instalação](MANUAL_INSTALACAO_ORAN.md).
+2. Use um diretório de runtime exclusivo, diferente de qualquer simulação em execução.
+3. Execute o [check_environment.sh](scripts/check_environment.sh) antes e depois da instalação.
+4. Consulte o [Guia de debug](GUIA_DEBUG_NS3_FLEXRIC.md) somente quando o build ou a execução apresentar erro.
 
 ## Scripts seguros
 
-Os scripts deste repositório são somente leitura por padrão:
+Os scripts não instalam pacotes, não clonam repositórios e não iniciam/paralisam processos:
 
 ```bash
 ./scripts/check_environment.sh
-./scripts/check_environment.sh "$HOME/orange_nuclear_debug_runtime"
+./scripts/check_environment.sh "$HOME/orange_nuclear_runtime"
 ./scripts/show_install_commands.sh
 ```
 
-Eles não executam `apt`, `sudo`, `git clone`, `sed`, `cmake`, `make`, nem iniciam ou param processos. Os comandos de instalação são apenas impressos para execução manual em um servidor ou ambiente isolado escolhido pelo operador.
+O segundo script apenas imprime os comandos do manual para revisão e cópia manual.
 
-## Runtime recomendado
+## Runtime isolado
 
-Use um diretório separado para os fontes e builds:
+Os comandos do manual usam:
 
-```text
-$HOME/orange_nuclear_debug_runtime/
-├── flexric/
-└── ns-O-RAN-flexric/
+```bash
+export ORAN_DEBUG_ROOT="$HOME/orange_nuclear_runtime"
 ```
 
-O runtime não deve ser o checkout da simulação já existente.
+Não use o checkout de outra simulação como `ORAN_DEBUG_ROOT`. O Git de debug não altera `/home/robert/orange_nuclear`, contêineres existentes ou processos em execução.
+
+## Compatibilidade
+
+- Ubuntu 24.04: alvo principal deste guia.
+- Ubuntu 22.04: alternativa recomendada quando ferramentas legadas do stack exigirem versões antigas.
+- O ns-3 atual usa C++, Python 3, CMake e Ninja/Make.
+- Python 3.8 só deve ser instalado em ambiente virtual quando uma ferramenta legada — especialmente GUI — exigir essa versão; não substitua o Python do sistema.
+
+## Licença e origem
+
+O código de terceiros permanece nos repositórios originais. Este Git documenta o procedimento de instalação do stack Orange-Nuclear e não redistribui os fontes.

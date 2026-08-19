@@ -27,6 +27,15 @@ check_path() {
   fi
 }
 
+check_package() {
+  local package_name="$1"
+  if command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q 'install ok installed'; then
+    ok "pacote $package_name instalado"
+  else
+    fail "pacote $package_name não encontrado"
+  fi
+}
+
 printf '%s\n' 'Verificação somente leitura do ambiente ns-3/FlexRIC'
 
 for command_name in git g++ cmake ninja make pkg-config; do
@@ -46,6 +55,19 @@ for command_name in gdb valgrind; do
     warn "$command_name não encontrado; debug avançado ficará indisponível"
   fi
 done
+
+if command -v dpkg-query >/dev/null 2>&1; then
+  for package_name in build-essential git g++ cmake ninja-build python3 libsctp-dev libboost-all-dev; do
+    check_package "$package_name"
+  done
+  for package_name in libgsl-dev libxml2-dev libsqlite3-dev libeigen3-dev gdb valgrind; do
+    if dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -q 'install ok installed'; then
+      ok "pacote opcional $package_name instalado"
+    else
+      warn "pacote opcional $package_name não encontrado"
+    fi
+  done
+fi
 
 if command -v docker >/dev/null 2>&1; then
   ok 'docker disponível (opcional)'

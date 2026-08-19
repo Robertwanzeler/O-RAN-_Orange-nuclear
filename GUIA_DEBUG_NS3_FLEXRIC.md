@@ -1,6 +1,6 @@
-# Guia de Debug: ns-3 + FlexRIC/O-RAN
+# Guia de debug do Orange-Nuclear
 
-Todos os exemplos usam o runtime isolado definido em `ORAN_DEBUG_ROOT`. O Git de debug não inicia serviços nem altera o ambiente.
+Use sempre o runtime isolado em `ORAN_DEBUG_ROOT`. Antes de alterar qualquer coisa, confirme que o caminho não pertence a uma simulação em execução.
 
 ## 1. Diagnóstico inicial
 
@@ -8,52 +8,135 @@ Todos os exemplos usam o runtime isolado definido em `ORAN_DEBUG_ROOT`. O Git de
 ./scripts/check_environment.sh "$ORAN_DEBUG_ROOT"
 ```
 
-Verifique versões:
+Verifique as versões:
 
 ```bash
 git --version
 g++ --version
 cmake --version
 ninja --version
+python3 --version
 ```
 
-Verifique os fontes:
+Verifique commits e submódulos:
 
 ```bash
-git -C "$ORAN_DEBUG_ROOT/flexric" status --short
-git -C "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric" status --short
+git -C "$ORAN_DEBUG_ROOT/flexric" rev-parse HEAD
+git -C "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric" rev-parse HEAD
 git -C "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric" submodule status
 ```
 
-## 2. Debug de compilação do ns-3
+## 2. Ubuntu 24.04
 
-Configure em modo de desenvolvimento e compile com uma thread:
+O ns-3 básico usa Python 3. Para ferramentas antigas que exigem Python 3.8, use um venv no runtime separado. Não substitua `/usr/bin/python3`. Se o pacote legado não estiver disponível, use Ubuntu 22.04 ou uma VM/contêiner compatível.
+
+## 3. FlexRIC
+
+### `add_subdirectory(xApp)`
+
+Confira a correção dentro do clone isolado:
+
+```bash
+cd "$ORAN_DEBUG_ROOT/flexric"
+git diff -- CMakeLists.txt examples/CMakeLists.txt
+```
+
+O resultado deve mostrar `examples` habilitado e `xApp` comentado. Se as linhas esperadas não existirem, revise a branch/commit antes de aplicar qualquer correção.
+
+### E2AP/KPM incompatíveis
+
+O Orange-Nuclear exige:
+
+```text
+E2AP_V1
+KPM_V3_00
+```
+
+Reconfigure somente o build do FlexRIC no runtime isolado:
+
+```bash
+cd "$ORAN_DEBUG_ROOT/flexric"
+rm -rf build
+mkdir build
+cd build
+cmake .. -DE2AP_VERSION=E2AP_V1 -DKPM_VERSION=KPM_V3_00 -G Ninja
+ninja
+```
+
+### Erro de link ou biblioteca ausente
+
+```bash
+ldd "$ORAN_DEBUG_ROOT/flexric/build/examples/ric/nearRT-RIC"
+sudo ldconfig
+```
+
+## 4. E2SIM
+
+Se o E2SIM não foi compilado:
+
+```bash
+cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric/e2sim-kpmv3/e2sim"
+mkdir -p build
+sudo ./build_e2sim.sh 2
+```
+
+Para investigar mensagens E2AP/KPM:
+
+```bash
+sudo ./build_e2sim.sh 3
+```
+
+Nível 2 é informativo; nível 3 inclui debug detalhado e estruturas ASN.1.
+
+## 5. Build do ns-3
+
+### `ns3/energy-model-helper.h: No such file`
+
+O módulo `energy` não foi incluído ou o comando foi executado em outro checkout:
 
 ```bash
 cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric/mmwave-LENA-oran"
 ./ns3 clean
 ./ns3 configure \
+  --build-profile=debug \
   --disable-examples \
   --disable-tests \
   --enable-modules=nr,mmwave,oran-interface,lte,energy
 ./ns3 build -j1
 ```
 
-Se houver erro de módulo ou header:
+### Build falha sem mensagem clara
 
 ```bash
+./ns3 build -j1
 ./ns3 show config
 ./ns3 show targets
-rg -n "energy|mmwave|oran-interface" build cmake-cache src contrib 2>/dev/null
 ```
 
-O erro `ns3/energy-model-helper.h: No such file` normalmente indica que `energy` não foi incluído em `--enable-modules` ou que o build está usando outro checkout.
-
-## 3. GDB
-
-O wrapper do ns-3 pode iniciar o programa pelo GDB:
+Após alterações de dependências ou módulos, use `--force-refresh`:
 
 ```bash
+./ns3 configure --force-refresh \
+  --build-profile=debug \
+  --disable-examples \
+  --disable-tests \
+  --enable-modules=nr,mmwave,oran-interface,lte,energy
+```
+
+### Submódulo vazio
+
+```bash
+cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric"
+git submodule update --init --recursive
+git submodule status
+```
+
+## 6. GDB
+
+Compile em `debug` e execute o cenário pelo wrapper:
+
+```bash
+cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric/mmwave-LENA-oran"
 ./ns3 run scratch/scenario-zero-with_parallel_loging --gdb
 ```
 
@@ -71,28 +154,23 @@ continue
 quit
 ```
 
-Para um binário específico, localize o alvo com `./ns3 show targets` e use `gdb --args` somente no runtime isolado.
-
-## 4. Valgrind
+## 7. Valgrind
 
 ```bash
 ./ns3 run scratch/scenario-zero-with_parallel_loging --valgrind
 ```
 
-Para gravar um relatório:
+Para relatório detalhado:
 
 ```bash
-valgrind \
-  --leak-check=full \
+valgrind --leak-check=full \
   --show-leak-kinds=all \
   --track-origins=yes \
   --log-file=valgrind-ns3.txt \
   ./ns3 run scratch/scenario-zero-with_parallel_loging
 ```
 
-Os arquivos de saída devem permanecer no runtime de debug, nunca no checkout principal.
-
-## 5. Logs do ns-3
+## 8. Logs
 
 ```bash
 NS_LOG='Simulator=level_all|prefix_time' \
@@ -105,54 +183,12 @@ Para salvar a saída:
 NS_LOG='level_info|prefix_time' \
   ./ns3 run scratch/scenario-zero-with_parallel_loging \
   > ns3-simulation.log 2>&1
-```
-
-Procure erros:
-
-```bash
 rg -ni 'error|fatal|warning|assert|exception|sctp|refused' ns3-simulation.log
 ```
 
-## 6. Debug do FlexRIC
+## 9. `Connection refused` ou SCTP sem conexão
 
-Verifique o binário antes de iniciar:
-
-```bash
-test -x "$ORAN_DEBUG_ROOT/flexric/build/examples/ric/nearRT-RIC"
-ldd "$ORAN_DEBUG_ROOT/flexric/build/examples/ric/nearRT-RIC"
-```
-
-Inicie o RIC em um terminal e observe suas mensagens. Em outro terminal, execute o ns-3. Não use `sudo`, `kill`, `pkill` ou `docker rm` para resolver uma falha sem identificar primeiro o processo pertencente ao runtime de debug.
-
-## 7. Problemas comuns
-
-### `add_subdirectory(xApp)`
-
-Confira se os ajustes do CMake foram aplicados dentro do clone isolado do FlexRIC:
-
-```bash
-cd "$ORAN_DEBUG_ROOT/flexric"
-git diff -- CMakeLists.txt examples/CMakeLists.txt
-```
-
-Depois, reconfigure o build do FlexRIC no mesmo runtime.
-
-### `ns3/energy-model-helper.h: No such file`
-
-Reconfigure o ns-3 incluindo `energy`:
-
-```bash
-./ns3 clean
-./ns3 configure \
-  --disable-examples \
-  --disable-tests \
-  --enable-modules=nr,mmwave,oran-interface,lte,energy
-./ns3 build -j1
-```
-
-### `Connection refused`
-
-Verifique, sem alterar processos:
+Valide sem parar processos:
 
 ```bash
 test -x "$ORAN_DEBUG_ROOT/flexric/build/examples/ric/nearRT-RIC"
@@ -160,26 +196,20 @@ pgrep -af nearRT-RIC || true
 ss -ltnp 2>/dev/null || true
 ```
 
-Se o RIC não estiver em execução, inicie-o no Terminal 1. Se houver outro serviço usando a porta necessária, use um runtime/servidor separado em vez de interromper o serviço existente.
+Ordem esperada:
 
-### Submódulo vazio
+1. O nearRT-RIC está iniciado no Terminal 1.
+2. O ns-3 usa o mesmo runtime.
+3. `e2TermIp` aponta para o host correto.
+4. Nenhum outro runtime usa a mesma porta.
 
-```bash
-cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric"
-git submodule update --init --recursive
-git submodule status
-```
+Não use `kill`, `pkill`, `docker rm` ou reinicialização global para corrigir conflito de porta.
 
-### Build inconsistente após alterações
-
-Faça limpeza somente no runtime isolado:
+## 10. Teste mínimo
 
 ```bash
-cd "$ORAN_DEBUG_ROOT/ns-O-RAN-flexric/mmwave-LENA-oran"
-./ns3 clean
-./ns3 configure \
-  --disable-examples \
-  --disable-tests \
-  --enable-modules=nr,mmwave,oran-interface,lte,energy
-./ns3 build -j1
+./ns3 run hello-simulator
+./ns3 run scratch/scenario-zero-with_parallel_loging
 ```
+
+Só depois valide a integração com o FlexRIC.
